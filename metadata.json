@@ -1,6 +1,6 @@
 {
-  "name": "Dr. Juned Piles Centre",
-  "description": "Healthcare Clinic for Piles treatment by Dr. Juned in Gondia, Maharashtra.",
+  "name": "Milk Management System",
+  "description": "Private milk delivery and billing management application.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
