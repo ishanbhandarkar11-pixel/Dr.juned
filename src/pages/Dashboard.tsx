@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Customer, Delivery } from '../db/db';
 import { getTodayStr, getCurrentMonthStr, formatDisplayDate } from '../utils/dateUtils';
+import { uploadDeliveryToCloud, uploadCustomerToCloud, subscribeToCloudStatus, isCloudConnected } from '../db/firebase';
+import InstallAppBanner from '../components/InstallAppBanner';
 import { 
   Milk, 
   IndianRupee, 
@@ -82,6 +84,11 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
   const [editQtyValue, setEditQtyValue] = useState<number>(1);
   const [changePermanently, setChangePermanently] = useState<boolean>(false);
   const [sessionFilter, setSessionFilter] = useState<'All' | 'Morning' | 'Evening'>('All');
+  const [cloudOnline, setCloudOnline] = useState<boolean>(isCloudConnected);
+
+  useEffect(() => {
+    return subscribeToCloudStatus(setCloudOnline);
+  }, []);
 
   // Filtered by Morning / Evening session
   const filteredCustomers = useMemo(() => {
@@ -134,12 +141,12 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
     const totalPending = Math.max(0, totalAllSales - totalAllPaid);
 
     return {
-      todayMilk,
-      morningMilk,
-      eveningMilk,
-      todayAmount,
-      monthSales,
-      totalPending
+      todayMilk: Math.round(todayMilk * 100) / 100,
+      morningMilk: Math.round(morningMilk * 100) / 100,
+      eveningMilk: Math.round(eveningMilk * 100) / 100,
+      todayAmount: Math.round(todayAmount * 100) / 100,
+      monthSales: Math.round(monthSales * 100) / 100,
+      totalPending: Math.round(totalPending * 100) / 100
     };
   }, [todayDeliveries, monthDeliveries, allDeliveries, allPayments, customers]);
 
@@ -172,7 +179,7 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
     const amt = qty * rate;
 
     const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
-    await db.deliveries.put({
+    const delRecord: Delivery = {
       id: delId,
       customerId: cust.id,
       date: todayStr,
@@ -185,14 +192,16 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
       isManual: true,
       session: cust.session || 'Morning',
       milkType: cust.milkType || 'Cow'
-    });
+    };
+    await db.deliveries.put(delRecord);
+    uploadDeliveryToCloud(delRecord);
   };
 
   // Quick Action 2: 1-Tap Skip (No Milk)
   const handleMarkSkip = async (cust: Customer) => {
     const existing = todayDeliveries.find(d => d.customerId === cust.id);
     const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
-    await db.deliveries.put({
+    const skipRecord: Delivery = {
       id: delId,
       customerId: cust.id,
       date: todayStr,
@@ -205,7 +214,9 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
       isManual: true,
       session: cust.session || 'Morning',
       milkType: cust.milkType || 'Cow'
-    });
+    };
+    await db.deliveries.put(skipRecord);
+    uploadDeliveryToCloud(skipRecord);
   };
 
   // Save Custom Quantity Change
@@ -221,7 +232,7 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
 
     const existing = todayDeliveries.find(d => d.customerId === cust.id);
     const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
-    await db.deliveries.put({
+    const customRecord: Delivery = {
       id: delId,
       customerId: cust.id,
       date: todayStr,
@@ -234,13 +245,16 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
       isManual: true,
       session: cust.session || 'Morning',
       milkType: cust.milkType || 'Cow'
-    });
+    };
+    await db.deliveries.put(customRecord);
+    uploadDeliveryToCloud(customRecord);
 
     // If user requested "Change from today onward"
     if (changePermanently && !isSkip) {
       await db.customers.update(cust.id, {
         defaultQuantity: qty
       });
+      uploadCustomerToCloud({ ...cust, defaultQuantity: qty });
     }
 
     setEditingCustomer(null);
@@ -265,12 +279,19 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
           </div>
         </div>
 
-        <div className="text-right">
+        <div className="text-right flex flex-col items-end gap-1">
           <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#1C2541] border border-[#2A3756] text-sky-400">
             {formatDisplayDate(todayStr)}
           </span>
+          <span className={`text-[10px] font-semibold flex items-center gap-1 ${cloudOnline ? 'text-emerald-400' : 'text-slate-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${cloudOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></span>
+            {cloudOnline ? 'Firebase Cloud' : 'Local Storage'}
+          </span>
         </div>
       </div>
+
+      {/* PWA Install App Prompt */}
+      <InstallAppBanner />
 
       {/* Top 4 Work Metrics (Exact match to reference image) */}
       <div className="grid grid-cols-2 gap-3 mt-4">
@@ -626,7 +647,7 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
                 </label>
                 <input 
                   type="number"
-                  step="0.1"
+                  step="any"
                   min="0"
                   required
                   value={editQtyValue}

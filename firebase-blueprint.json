@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer entity for dairy milk delivery records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "startDate": { "type": "string" },
+        "defaultQuantity": { "type": "number" },
+        "rate": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Paused"] },
+        "isActive": { "type": "boolean" },
+        "session": { "type": "string", "enum": ["Morning", "Evening"] },
+        "milkType": { "type": "string" },
+        "pauseStartDate": { "type": "string" },
+        "pauseEndDate": { "type": "string" },
+        "lastGeneratedDate": { "type": "string" }
+      },
+      "required": ["id", "name", "startDate", "defaultQuantity", "rate", "status"]
+    },
+    "Delivery": {
+      "title": "Delivery",
+      "description": "Daily milk delivery record for a customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "date": { "type": "string" },
+        "month": { "type": "string" },
+        "quantity": { "type": "number" },
+        "rate": { "type": "number" },
+        "amount": { "type": "number" },
+        "remarks": { "type": "string" },
+        "status": { "type": "string", "enum": ["Delivered", "Skipped", "Extra"] },
+        "isManual": { "type": "boolean" },
+        "session": { "type": "string", "enum": ["Morning", "Evening"] },
+        "milkType": { "type": "string" }
+      },
+      "required": ["id", "customerId", "date", "month", "quantity", "rate", "amount", "status"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Customer payment record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "date": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentMode": { "type": "string", "enum": ["Cash", "UPI", "Bank"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "customerId", "date", "amount", "paymentMode"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Milk diary customers list"
+    },
+    "/deliveries/{deliveryId}": {
+      "schema": { "$ref": "#/entities/Delivery" },
+      "description": "Daily delivery entries"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Payment transactions received"
+    }
+  }
+}

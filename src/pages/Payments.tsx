@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Customer, Payment } from '../db/db';
 import { getTodayStr, formatDisplayDate } from '../utils/dateUtils';
+import { uploadPaymentToCloud } from '../db/firebase';
 import { 
   Plus, 
   IndianRupee, 
@@ -276,14 +277,17 @@ function GlobalRecordPaymentModal({
     e.preventDefault();
     if (!selectedId || !amount || amount <= 0) return;
 
-    await db.payments.add({
+    const newPayment: Payment = {
       id: crypto.randomUUID(),
       customerId: selectedId,
       date: date,
       amount: Number(amount),
       paymentMode: mode,
       notes: notes.trim()
-    });
+    };
+
+    await db.payments.add(newPayment);
+    uploadPaymentToCloud(newPayment);
 
     onClose();
   };
@@ -335,7 +339,8 @@ function GlobalRecordPaymentModal({
               <input 
                 required
                 type="number"
-                min="1"
+                step="any"
+                min="0.01"
                 value={amount}
                 onChange={e => setAmount(Number(e.target.value))}
                 className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-4 py-3 text-lg font-black text-emerald-400 outline-none focus:border-emerald-500"

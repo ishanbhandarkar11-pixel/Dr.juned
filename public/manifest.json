@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "दूध डायरी - Milk Manager",
+  "short_name": "दूध डायरी",
+  "description": "दैनिक दूध डिलीवरी, ग्राहक रिकॉर्ड और बिल खाता ऐप",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0B132B",
+  "background_color": "#0B132B",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { db, Delivery, Customer } from './db';
 import { getTodayStr, addDays } from '../utils/dateUtils';
+import { syncWithFirebase } from './firebase';
 
 export async function generateDeliveriesUpToToday() {
   const today = getTodayStr(); // '2026-09-18'
@@ -257,4 +258,7 @@ export async function generateDeliveriesUpToToday() {
   if (deliveriesToSave.length > 0) {
     await db.deliveries.bulkPut(deliveriesToSave);
   }
+
+  // Seamlessly sync with Firebase Firestore in background
+  syncWithFirebase().catch(e => console.warn('Background Firebase sync:', e));
 }

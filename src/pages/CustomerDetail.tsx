@@ -33,6 +33,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PauseCustomerModal from '../components/PauseCustomerModal';
 import BillReceiptModal from '../components/BillReceiptModal';
+import { 
+  uploadCustomerToCloud, 
+  uploadDeliveryToCloud, 
+  uploadPaymentToCloud, 
+  deleteCustomerFromCloud 
+} from '../db/firebase';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -104,10 +110,10 @@ export default function CustomerDetail({ customerId, onBack }: CustomerDetailPro
     const monthRemaining = Math.max(0, totalAmount - monthPaid);
 
     return {
-      totalMilk,
-      totalAmount,
-      totalPaid: monthPaid,
-      remaining: monthRemaining
+      totalMilk: Math.round(totalMilk * 100) / 100,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      totalPaid: Math.round(monthPaid * 100) / 100,
+      remaining: Math.round(monthRemaining * 100) / 100
     };
   }, [monthDeliveries, allPayments, selectedMonth]);
 
@@ -129,6 +135,7 @@ export default function CustomerDetail({ customerId, onBack }: CustomerDetailPro
     await db.deliveries.where('customerId').equals(customerId).delete();
     await db.payments.where('customerId').equals(customerId).delete();
     await db.customers.delete(customerId);
+    deleteCustomerFromCloud(customerId);
     onBack();
   };
 
@@ -571,14 +578,17 @@ function RecordPaymentModal({
     e.preventDefault();
     if (!amount || amount <= 0) return;
 
-    await db.payments.add({
+    const newPayment: Payment = {
       id: crypto.randomUUID(),
       customerId: customer.id,
       date: date,
       amount: Number(amount),
       paymentMode: mode,
       notes: notes.trim()
-    });
+    };
+
+    await db.payments.add(newPayment);
+    uploadPaymentToCloud(newPayment);
 
     onClose();
   };
@@ -610,7 +620,8 @@ function RecordPaymentModal({
               <input 
                 required
                 type="number"
-                min="1"
+                step="any"
+                min="0.01"
                 value={amount}
                 onChange={e => setAmount(Number(e.target.value))}
                 className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-4 py-3 text-lg font-black text-emerald-400 outline-none focus:border-emerald-500"
@@ -703,13 +714,16 @@ function EditDeliveryModal({
 
   // 1-Tap Skip
   const handleQuickSkip = async () => {
-    await db.deliveries.update(delivery.id, {
+    const updated: Delivery = {
+      ...delivery,
       status: 'Skipped',
       quantity: 0,
       amount: 0,
       remarks: 'No Milk',
       isManual: true
-    });
+    };
+    await db.deliveries.put(updated);
+    uploadDeliveryToCloud(updated);
     onClose();
   };
 
@@ -717,14 +731,17 @@ function EditDeliveryModal({
   const handleQuickNormal = async () => {
     const qty = customer.defaultQuantity;
     const r = customer.rate;
-    await db.deliveries.update(delivery.id, {
+    const updated: Delivery = {
+      ...delivery,
       status: 'Delivered',
       quantity: qty,
       rate: r,
       amount: qty * r,
       remarks: 'Normal',
       isManual: true
-    });
+    };
+    await db.deliveries.put(updated);
+    uploadDeliveryToCloud(updated);
     onClose();
   };
 
@@ -737,14 +754,17 @@ function EditDeliveryModal({
     const isSkip = q === 0;
 
     // 1. Update this specific day
-    await db.deliveries.update(delivery.id, {
+    const updated: Delivery = {
+      ...delivery,
       quantity: q,
       rate: r,
       amount: amt,
       status: isSkip ? 'Skipped' : (q !== customer.defaultQuantity ? 'Custom' : 'Delivered'),
       remarks: isSkip ? 'No Milk' : `Custom ${q}L @ ₹${r}`,
       isManual: true
-    });
+    };
+    await db.deliveries.put(updated);
+    uploadDeliveryToCloud(updated);
 
     // 2. If user selected "Apply Quantity forward from this date"
     if (applyForwardQty && !isSkip) {
@@ -837,7 +857,7 @@ function EditDeliveryModal({
             <input 
               required
               type="number"
-              step="0.1"
+              step="any"
               min="0"
               value={quantity}
               onChange={e => setQuantity(Number(e.target.value))}
@@ -864,6 +884,7 @@ function EditDeliveryModal({
             <input 
               required
               type="number"
+              step="any"
               min="1"
               value={rate}
               onChange={e => setRate(Number(e.target.value))}

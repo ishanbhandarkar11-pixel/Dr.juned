@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { generateDeliveriesUpToToday } from '../db/generate';
 import PauseCustomerModal from '../components/PauseCustomerModal';
+import { uploadCustomerToCloud } from '../db/firebase';
 
 interface CustomersProps {
   onSelectCustomer: (id: string) => void;
@@ -297,6 +298,7 @@ export function AddCustomerModal({
       };
 
       await db.customers.add(newCustomer);
+      uploadCustomerToCloud(newCustomer);
       await generateDeliveriesUpToToday();
 
       if (onAdded) {
@@ -352,8 +354,8 @@ export function AddCustomerModal({
               <input 
                 required
                 type="number"
-                step="0.1"
-                min="0.1"
+                step="any"
+                min="0.01"
                 value={dailyQty}
                 onChange={e => setDailyQty(Number(e.target.value))}
                 className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-3.5 py-2.5 text-sm text-white font-bold outline-none focus:border-[#00A2ED] transition-colors"
@@ -373,6 +375,7 @@ export function AddCustomerModal({
               <input 
                 required
                 type="number"
+                step="any"
                 min="1"
                 value={rate}
                 onChange={e => setRate(Number(e.target.value))}
