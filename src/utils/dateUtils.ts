@@ -23,6 +23,16 @@ export function formatDisplayDate(dateStr: string): string {
   return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+export function formatDMY(dateStr: string): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+  }
+  return dateStr;
+}
+
 export function getCurrentMonthStr(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -34,6 +44,18 @@ export function formatMonthStr(monthStr: string): string {
   const [y, m] = monthStr.split('-').map(Number);
   const date = new Date(y, m - 1, 1);
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+export function getPreviousMonthStr(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  const date = new Date(y, m - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function getNextMonthStr(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  const date = new Date(y, m, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function getAllMonthsInRange(startStr: string, endStr: string): string[] {

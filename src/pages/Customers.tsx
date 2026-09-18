@@ -1,142 +1,447 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/db';
-import { getTodayStr } from '../utils/dateUtils';
-import { Plus, User, Search, ChevronRight, X } from 'lucide-react';
+import { db, Customer } from '../db/db';
+import { getTodayStr, formatDisplayDate } from '../utils/dateUtils';
+import { 
+  Plus, 
+  Search, 
+  ChevronRight, 
+  X, 
+  User, 
+  Trash2,
+  AlertTriangle,
+  Pause,
+  Calendar
+} from 'lucide-react';
 import { generateDeliveriesUpToToday } from '../db/generate';
+import PauseCustomerModal from '../components/PauseCustomerModal';
 
-export default function Customers({ onSelectCustomer }: { onSelectCustomer: (id: string) => void }) {
-  const customers = useLiveQuery(() => db.customers.toArray()) || [];
-  const [search, setSearch] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
-
-  const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
-
-  return (
-    <div className="p-4 max-w-4xl mx-auto pb-24">
-       <div className="flex justify-between items-center mb-6">
-         <h1 className="text-2xl font-bold text-slate-900">Customers</h1>
-         <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 shadow-sm">
-           <Plus size={20} /> Add
-         </button>
-       </div>
-
-       <div className="mb-6 relative">
-         <Search size={22} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-         <input 
-           type="text" 
-           placeholder="Search customers..." 
-           value={search}
-           onChange={e => setSearch(e.target.value)}
-           className="w-full pl-12 pr-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium transition-colors"
-         />
-       </div>
-
-       <div className="space-y-3">
-         {filtered.length === 0 ? (
-           <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200">
-             <p className="text-slate-500 font-medium">No customers found.</p>
-           </div>
-         ) : (
-           filtered.map(c => (
-             <div key={c.id} onClick={() => onSelectCustomer(c.id)} className={`p-4 rounded-xl border-2 flex items-center justify-between cursor-pointer transition-all active:scale-[0.99] ${c.isActive ? 'bg-white border-slate-100 hover:border-blue-200 shadow-sm' : 'bg-slate-50 border-slate-200 opacity-70'}`}>
-               <div className="flex items-center gap-4">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${c.isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'}`}>
-                   <User size={24} />
-                 </div>
-                 <div>
-                   <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-                     {c.name} {!c.isActive && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded">INACTIVE</span>}
-                   </h3>
-                   <p className="text-sm font-medium text-slate-500">{c.session} • {c.defaultQuantity}L @ ₹{c.rate}</p>
-                 </div>
-               </div>
-               <ChevronRight size={24} className="text-slate-300" />
-             </div>
-           ))
-         )}
-       </div>
-
-       {showAdd && <AddCustomerModal onClose={() => setShowAdd(false)} />}
-    </div>
-  )
+interface CustomersProps {
+  onSelectCustomer: (id: string) => void;
+  showAddModalDefault?: boolean;
 }
 
-function AddCustomerModal({ onClose }: { onClose: () => void }) {
-  const [form, setForm] = useState({
-    name: '',
-    startDate: getTodayStr(),
-    session: 'Morning',
-    milkType: 'Cow',
-    defaultQuantity: 1,
-    rate: 50
+export default function Customers({ onSelectCustomer, showAddModalDefault = false }: CustomersProps) {
+  const customers = useLiveQuery(() => db.customers.toArray()) || [];
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'paused'>('all');
+  const [showAdd, setShowAdd] = useState(showAddModalDefault);
+  const [deleteConfirmCust, setDeleteConfirmCust] = useState<Customer | null>(null);
+  const [pausingCustomer, setPausingCustomer] = useState<Customer | null>(null);
+
+  // Filter list
+  const filtered = customers.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase().trim());
+    if (!matchesSearch) return false;
+    const isPaused = c.status === 'Paused';
+    if (activeFilter === 'active') return !isPaused;
+    if (activeFilter === 'paused') return isPaused;
+    return true;
   });
 
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await db.customers.add({
-      id: crypto.randomUUID(),
-      name: form.name,
-      startDate: form.startDate,
-      session: form.session as 'Morning' | 'Evening',
-      milkType: form.milkType as 'Cow' | 'Buffalo',
-      defaultQuantity: Number(form.defaultQuantity),
-      rate: Number(form.rate),
-      isActive: true,
-      lastGeneratedDate: '' 
-    });
-    await generateDeliveriesUpToToday();
-    onClose();
+  const activeCount = customers.filter(c => c.status !== 'Paused').length;
+  const pausedCount = customers.filter(c => c.status === 'Paused').length;
+
+  // Handle permanent customer deletion
+  const handleDeleteCustomer = async (cust: Customer) => {
+    await db.deliveries.where('customerId').equals(cust.id).delete();
+    await db.payments.where('customerId').equals(cust.id).delete();
+    await db.customers.delete(cust.id);
+    setDeleteConfirmCust(null);
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold text-slate-900">Add Customer</h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200"><X size={20}/></button>
+    <div className="min-h-screen bg-[#0B132B] text-slate-100 pb-28 pt-2 px-4 max-w-lg mx-auto font-sans">
+      
+      {/* Header */}
+      <div className="flex items-center justify-between py-3 border-b border-[#1E293B]">
+        <div>
+          <h1 className="text-xl font-extrabold text-white tracking-tight">Customers</h1>
+          <p className="text-xs font-semibold text-slate-400">{customers.length} customers registered</p>
         </div>
-        <form onSubmit={save} className="space-y-5">
-           <div>
-             <label className="block text-sm font-bold text-slate-700 mb-1.5">Customer Name</label>
-             <input required type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500" />
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-             <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1.5">Start Date</label>
-               <input required type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500" />
-             </div>
-             <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1.5">Session</label>
-               <select value={form.session} onChange={e => setForm({...form, session: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500 bg-white">
-                 <option>Morning</option>
-                 <option>Evening</option>
-               </select>
-             </div>
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-             <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1.5">Milk Type</label>
-               <select value={form.milkType} onChange={e => setForm({...form, milkType: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500 bg-white">
-                 <option>Cow</option>
-                 <option>Buffalo</option>
-               </select>
-             </div>
-             <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1.5">Rate (₹/L)</label>
-               <input required type="number" min="0" value={form.rate} onChange={e => setForm({...form, rate: Number(e.target.value)})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500" />
-             </div>
-           </div>
-           <div>
-             <label className="block text-sm font-bold text-slate-700 mb-1.5">Default Quantity (L)</label>
-             <input required type="number" step="0.1" min="0.1" value={form.defaultQuantity} onChange={e => setForm({...form, defaultQuantity: Number(e.target.value)})} className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 font-medium outline-none focus:border-blue-500" />
-           </div>
-           
-           <div className="pt-2">
-             <button type="submit" className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl active:scale-[0.98] transition-all text-lg">Save Customer</button>
-           </div>
+        
+        <button 
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-1.5 bg-[#00A2ED] hover:bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
+        >
+          <Plus size={16} /> Add
+        </button>
+      </div>
+
+      {/* Search Bar */}
+      <div className="mt-4 relative">
+        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input 
+          type="text"
+          placeholder="Search customer..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-11 pr-10 py-3 bg-[#1C2541] border border-[#2A3756] rounded-2xl text-white placeholder-slate-400 font-medium text-sm outline-none focus:border-[#00A2ED] transition-colors"
+        />
+        {search && (
+          <button 
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* Filter Tabs / Chips */}
+      <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar pb-1">
+        <button
+          onClick={() => setActiveFilter('all')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeFilter === 'all'
+              ? 'bg-[#00A2ED] text-white shadow-md shadow-sky-500/20'
+              : 'bg-[#1C2541] border border-[#2A3756] text-slate-400 hover:text-white'
+          }`}
+        >
+          All ({customers.length})
+        </button>
+        <button
+          onClick={() => setActiveFilter('active')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeFilter === 'active'
+              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+              : 'bg-[#1C2541] border border-[#2A3756] text-slate-400 hover:text-white'
+          }`}
+        >
+          Active ({activeCount})
+        </button>
+        <button
+          onClick={() => setActiveFilter('paused')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeFilter === 'paused'
+              ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+              : 'bg-[#1C2541] border border-[#2A3756] text-slate-400 hover:text-white'
+          }`}
+        >
+          Paused ({pausedCount})
+        </button>
+      </div>
+
+      {/* Customer List */}
+      <div className="mt-4 space-y-2.5">
+        {filtered.length === 0 ? (
+          <div className="p-8 text-center bg-[#1C2541] border border-[#2A3756] rounded-2xl">
+            <User size={36} className="mx-auto text-slate-500 mb-2" />
+            <p className="text-slate-300 font-bold text-sm">कोई ग्राहक नहीं मिला</p>
+            <p className="text-slate-500 text-xs mt-1">नया ग्राहक जोड़ने के लिए ऊपर '+ Add' बटन दबाएँ।</p>
+          </div>
+        ) : (
+          filtered.map(c => {
+            const isPaused = c.status === 'Paused';
+
+            return (
+              <div 
+                key={c.id}
+                className="p-3.5 rounded-2xl bg-[#1C2541] border border-[#2A3756] flex items-center justify-between transition-all hover:border-slate-500 cursor-pointer active:scale-[0.99] group shadow-sm"
+              >
+                <div 
+                  onClick={() => onSelectCustomer(c.id)}
+                  className="flex items-center gap-3.5 flex-1"
+                >
+                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-base shadow-inner ${
+                    isPaused ? 'bg-amber-500/20 text-amber-400' : 'bg-sky-500/20 text-sky-400'
+                  }`}>
+                    {c.name.charAt(0).toUpperCase()}
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold text-sm text-white group-hover:text-sky-400 transition-colors flex items-center gap-2">
+                      {c.name}
+                    </h3>
+                    <p className="text-xs font-medium text-slate-400 mt-0.5">
+                      {c.defaultQuantity} L/day • ₹{c.rate}/L
+                    </p>
+                    {isPaused && c.pauseStartDate && c.pauseEndDate && (
+                      <p className="text-[11px] font-bold text-amber-400 mt-1 flex items-center gap-1">
+                        <Calendar size={12} /> {formatDisplayDate(c.pauseStartDate)} से {formatDisplayDate(c.pauseEndDate)} तक बंद
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Direct Pause / Active Button */}
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPausingCustomer(c);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 shadow-sm ${
+                      isPaused 
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30' 
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                    }`}
+                    title={isPaused ? "दूध चालू करने के लिए टैप करें" : "दूध बंद (Pause) करने के लिए टैप करें"}
+                  >
+                    {isPaused ? (
+                      <>
+                        <Pause size={13} className="text-amber-400" />
+                        <span>Paused (बंद)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span>Active (चालू)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Fast Delete Button */}
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmCust(c);
+                    }}
+                    title="Delete customer permanently"
+                    className="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+
+                  <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition-colors" />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Pause / Resume Customer Modal */}
+      {pausingCustomer && (
+        <PauseCustomerModal 
+          customer={pausingCustomer}
+          onClose={() => setPausingCustomer(null)}
+        />
+      )}
+
+      {/* Add Customer Modal (Exact match to Screen 3) */}
+      {showAdd && (
+        <AddCustomerModal 
+          onClose={() => setShowAdd(false)}
+          onAdded={(newCust) => onSelectCustomer(newCust.id)}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmCust && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C2541] border border-rose-500/30 rounded-3xl p-5 w-full max-w-sm shadow-2xl text-slate-100">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
+              <AlertTriangle size={24} />
+            </div>
+            
+            <h3 className="text-base font-bold text-white">
+              ग्राहक को हमेशा के लिए डिलीट करें?
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              क्या आप सच में <strong className="text-rose-300">{deleteConfirmCust.name}</strong> को और उनके सभी पुराने रिकॉर्ड को स्थायी रूप से हटाना चाहते हैं?
+            </p>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setDeleteConfirmCust(null)}
+                className="flex-1 py-2.5 rounded-xl bg-[#2A3756] text-slate-300 font-bold text-xs hover:bg-slate-700"
+              >
+                रद्द करें
+              </button>
+              <button
+                onClick={() => handleDeleteCustomer(deleteConfirmCust)}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-lg shadow-rose-500/20 active:scale-95 transition-all"
+              >
+                हाँ, डिलीट करें
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// Add Customer Modal Component
+export function AddCustomerModal({ 
+  onClose, 
+  onAdded 
+}: { 
+  onClose: () => void; 
+  onAdded?: (customer: Customer) => void 
+}) {
+  const [name, setName] = useState('');
+  const [dailyQty, setDailyQty] = useState<number>(1);
+  const [rate, setRate] = useState<number>(60);
+  const [startDate, setStartDate] = useState(getTodayStr());
+  const [status, setStatus] = useState<'Active' | 'Paused'>('Active');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const newCustomer: Customer = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        startDate: startDate,
+        defaultQuantity: Number(dailyQty),
+        rate: Number(rate),
+        status: status,
+        isActive: status === 'Active',
+        lastGeneratedDate: ''
+      };
+
+      await db.customers.add(newCustomer);
+      await generateDeliveriesUpToToday();
+
+      if (onAdded) {
+        onAdded(newCustomer);
+      }
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-sans">
+      <div className="bg-[#1C2541] border border-[#2A3756] rounded-3xl p-6 w-full max-w-sm max-h-[92vh] overflow-y-auto shadow-2xl text-slate-100">
+        
+        {/* Header */}
+        <div className="flex justify-between items-center pb-3 border-b border-[#2A3756]">
+          <h3 className="text-base font-bold text-white">Add Customer</h3>
+          <button 
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#2A3756] text-slate-400 hover:text-white flex items-center justify-center"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          
+          {/* Customer Name */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Customer Name <span className="text-rose-400">*</span>
+            </label>
+            <input 
+              required
+              type="text"
+              placeholder="e.g. Rahul"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-3.5 py-2.5 text-sm text-white font-medium outline-none focus:border-[#00A2ED] transition-colors"
+            />
+          </div>
+
+          {/* Daily Quantity */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Daily Quantity (Litres) <span className="text-rose-400">*</span>
+            </label>
+            <div className="relative">
+              <input 
+                required
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={dailyQty}
+                onChange={e => setDailyQty(Number(e.target.value))}
+                className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-3.5 py-2.5 text-sm text-white font-bold outline-none focus:border-[#00A2ED] transition-colors"
+              />
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                L
+              </span>
+            </div>
+          </div>
+
+          {/* Rate per Litre */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Rate per Litre (₹) <span className="text-rose-400">*</span>
+            </label>
+            <div className="relative">
+              <input 
+                required
+                type="number"
+                min="1"
+                value={rate}
+                onChange={e => setRate(Number(e.target.value))}
+                className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-3.5 py-2.5 text-sm text-white font-bold outline-none focus:border-[#00A2ED] transition-colors"
+              />
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                ₹
+              </span>
+            </div>
+          </div>
+
+          {/* Start Date */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Start Date <span className="text-rose-400">*</span>
+            </label>
+            <input 
+              required
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="w-full bg-[#0B132B] border border-[#2A3756] rounded-xl px-3.5 py-2.5 text-sm text-white font-medium outline-none focus:border-[#00A2ED] transition-colors"
+            />
+          </div>
+
+          {/* Status Toggle */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Status
+            </label>
+            <div className="grid grid-cols-2 gap-2 bg-[#0B132B] p-1 rounded-xl border border-[#2A3756]">
+              <button
+                type="button"
+                onClick={() => setStatus('Active')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                  status === 'Active'
+                    ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatus('Paused')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                  status === 'Paused'
+                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Paused
+              </button>
+            </div>
+          </div>
+
+          {/* Submit Button */}
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-[#00A2ED] hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-all active:scale-[0.98] shadow-lg shadow-sky-500/20 disabled:opacity-50"
+            >
+              Save Customer
+            </button>
+          </div>
+
         </form>
       </div>
     </div>
-  )
+  );
 }
