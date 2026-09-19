@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Customer, Delivery } from '../db/db';
-import { getTodayStr, getCurrentMonthStr, formatDisplayDate } from '../utils/dateUtils';
+import { getTodayStr, getCurrentMonthStr, formatDisplayDate, addDays } from '../utils/dateUtils';
 import { uploadDeliveryToCloud, uploadCustomerToCloud, subscribeToCloudStatus, isCloudConnected } from '../db/firebase';
-import InstallAppBanner from '../components/InstallAppBanner';
 import { 
   Milk, 
   IndianRupee, 
@@ -20,7 +19,10 @@ import {
   Sun,
   Moon,
   CheckCheck,
-  Clock
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  Calendar
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -30,14 +32,38 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onNavigateToPayments }: DashboardProps) {
-  const todayStr = getTodayStr();
-  const currentMonthStr = getCurrentMonthStr();
+  const [actualToday, setActualToday] = useState<string>(() => getTodayStr());
+  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
+
+  // Keep date synced with real device clock (e.g. when day changes from 18 to 19 or tab is reopened)
+  useEffect(() => {
+    const syncWithClock = () => {
+      const nowToday = getTodayStr();
+      setActualToday(nowToday);
+      // If user was on the previous today, advance to the new today automatically
+      setSelectedDate(prev => {
+        if (prev < nowToday) return nowToday;
+        return prev;
+      });
+    };
+
+    syncWithClock();
+    window.addEventListener('focus', syncWithClock);
+    const interval = setInterval(syncWithClock, 15000); // check every 15s
+    return () => {
+      window.removeEventListener('focus', syncWithClock);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const isToday = selectedDate === actualToday;
+  const currentMonthStr = selectedDate.substring(0, 7);
 
   // Queries
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const rawTodayDeliveries = useLiveQuery(
-    () => db.deliveries.where('date').equals(todayStr).toArray(),
-    [todayStr]
+    () => db.deliveries.where('date').equals(selectedDate).toArray(),
+    [selectedDate]
   ) || [];
   const rawMonthDeliveries = useLiveQuery(
     () => db.deliveries.where('month').equals(currentMonthStr).toArray(),
@@ -100,11 +126,11 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
   const handleMarkAllDelivered = async () => {
     const targetList = filteredCustomers.filter(c => c.status !== 'Paused');
     for (const cust of targetList) {
-      const delId = `${cust.id}_${todayStr}`;
+      const delId = `${cust.id}_${selectedDate}`;
       await db.deliveries.put({
         id: delId,
         customerId: cust.id,
-        date: todayStr,
+        date: selectedDate,
         month: currentMonthStr,
         quantity: cust.defaultQuantity,
         rate: cust.rate,
@@ -178,11 +204,11 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
     const rate = cust.rate;
     const amt = qty * rate;
 
-    const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
+    const delId = existing ? existing.id : `${cust.id}_${selectedDate}`;
     const delRecord: Delivery = {
       id: delId,
       customerId: cust.id,
-      date: todayStr,
+      date: selectedDate,
       month: currentMonthStr,
       quantity: qty,
       rate: rate,
@@ -200,11 +226,11 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
   // Quick Action 2: 1-Tap Skip (No Milk)
   const handleMarkSkip = async (cust: Customer) => {
     const existing = todayDeliveries.find(d => d.customerId === cust.id);
-    const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
+    const delId = existing ? existing.id : `${cust.id}_${selectedDate}`;
     const skipRecord: Delivery = {
       id: delId,
       customerId: cust.id,
-      date: todayStr,
+      date: selectedDate,
       month: currentMonthStr,
       quantity: 0,
       rate: cust.rate,
@@ -231,11 +257,11 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
     const isSkip = qty === 0;
 
     const existing = todayDeliveries.find(d => d.customerId === cust.id);
-    const delId = existing ? existing.id : `${cust.id}_${todayStr}`;
+    const delId = existing ? existing.id : `${cust.id}_${selectedDate}`;
     const customRecord: Delivery = {
       id: delId,
       customerId: cust.id,
-      date: todayStr,
+      date: selectedDate,
       month: currentMonthStr,
       quantity: qty,
       rate: rate,
@@ -279,19 +305,52 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
           </div>
         </div>
 
-        <div className="text-right flex flex-col items-end gap-1">
-          <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#1C2541] border border-[#2A3756] text-sky-400">
-            {formatDisplayDate(todayStr)}
-          </span>
-          <span className={`text-[10px] font-semibold flex items-center gap-1 ${cloudOnline ? 'text-emerald-400' : 'text-slate-400'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${cloudOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></span>
-            {cloudOnline ? 'Firebase Cloud' : 'Local Storage'}
-          </span>
+        <div className="text-right flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-1 bg-[#1C2541] border border-[#2A3756] rounded-full px-1.5 py-1">
+            <button
+              onClick={() => setSelectedDate(prev => addDays(prev, -1))}
+              title="पिछली तारीख (Previous Date)"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-[#2A3756] transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <label className="relative cursor-pointer flex items-center gap-1.5 px-1 hover:opacity-85">
+              <input 
+                type="date" 
+                value={selectedDate} 
+                onChange={e => e.target.value && setSelectedDate(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <Calendar size={13} className="text-sky-400" />
+              <span className="text-xs font-bold text-sky-400 whitespace-nowrap">
+                {isToday ? `आज • ${formatDisplayDate(selectedDate)}` : formatDisplayDate(selectedDate)}
+              </span>
+            </label>
+            <button
+              onClick={() => setSelectedDate(prev => addDays(prev, 1))}
+              title="अगली तारीख (Next Date)"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-[#2A3756] transition-colors"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!isToday && (
+              <button 
+                onClick={() => setSelectedDate(actualToday)}
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30"
+              >
+                आज पर जाएँ
+              </button>
+            )}
+            <span className={`text-[10px] font-semibold flex items-center gap-1 ${cloudOnline ? 'text-emerald-400' : 'text-slate-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${cloudOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></span>
+              {cloudOnline ? 'Firebase Cloud' : 'Local Storage'}
+            </span>
+          </div>
         </div>
       </div>
-
-      {/* PWA Install App Prompt */}
-      <InstallAppBanner />
 
       {/* Top 4 Work Metrics (Exact match to reference image) */}
       <div className="grid grid-cols-2 gap-3 mt-4">
@@ -420,10 +479,10 @@ export default function Dashboard({ onNavigateToCustomer, onOpenAddCustomer, onN
         <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="text-sm font-bold text-white tracking-wide">
-              Today's Customers ({filteredCustomers.length})
+              {isToday ? "Today's Customers" : "Customers"} ({filteredCustomers.length})
             </h2>
             <p className="text-[11px] font-medium text-slate-400">
-              18 Sep 2026 • आज का दूध वितरण
+              {formatDisplayDate(selectedDate)} • {isToday ? 'आज का दूध वितरण' : 'दूध वितरण'}
             </p>
           </div>
           

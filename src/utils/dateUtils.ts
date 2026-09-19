@@ -18,9 +18,10 @@ export function addDays(dateStr: string, days: number): string {
 }
 
 export function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${d} ${monthNames[(m || 1) - 1]} ${y}`;
 }
 
 export function formatDMY(dateStr: string): string {
